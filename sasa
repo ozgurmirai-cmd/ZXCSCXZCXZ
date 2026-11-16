@@ -1,0 +1,341 @@
+-- lang: Luau, target: Roblox (Universal), executor: Synapse X / KRNL / Fluxus
+-- ESP · Fly · Noclip · Aimbot · Kill Aura — ScreenGui toggle paneli
+
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local UserInput    = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera       = workspace.CurrentCamera
+
+local lp     = Players.LocalPlayer
+local mouse  = lp:GetMouse()
+
+-- ──────────────────────────────────────────────
+-- STATE
+-- ──────────────────────────────────────────────
+local State = {
+    esp       = false,
+    fly       = false,
+    noclip    = false,
+    aimbot    = false,
+    killaura  = false,
+}
+
+local flyBody = {}     -- BodyVelocity + BodyGyro referansları
+local espHighlights = {}
+
+-- ──────────────────────────────────────────────
+-- YARDIMCI
+-- ──────────────────────────────────────────────
+local function getChar()
+    return lp.Character
+end
+
+local function getHRP()
+    local c = getChar()
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function getHum()
+    local c = getChar()
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+-- Karakter yüklendiğinde noclip/fly'yi yeniden bağla
+lp.CharacterAdded:Connect(function()
+    -- highlight'ları temizle, yeniden oluşturulacak
+    for _, h in pairs(espHighlights) do h:Destroy() end
+    espHighlights = {}
+end)
+
+-- ──────────────────────────────────────────────
+-- GUI
+-- ──────────────────────────────────────────────
+local sg = Instance.new("ScreenGui")
+sg.Name         = "ZXCMenu"
+sg.ResetOnSpawn = false
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.Parent = game:GetService("CoreGui")
+
+local frame = Instance.new("Frame")
+frame.Size            = UDim2.new(0, 180, 0, 230)
+frame.Position        = UDim2.new(0, 10, 0, 10)
+frame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+frame.BorderSizePixel = 0
+frame.Parent          = sg
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent       = frame
+
+-- sürükle
+local dragging, dragStart, startPos
+frame.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging  = true
+        dragStart = inp.Position
+        startPos  = frame.Position
+    end
+end)
+frame.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+UserInput.InputChanged:Connect(function(inp)
+    if dragging and inp.UserInputType == Enum.UserInputType.MouseMove then
+        local delta = inp.Position - dragStart
+        frame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+local title = Instance.new("TextLabel")
+title.Size              = UDim2.new(1, 0, 0, 28)
+title.BackgroundColor3  = Color3.fromRGB(90, 60, 200)
+title.TextColor3        = Color3.fromRGB(255, 255, 255)
+title.Text              = "ZXC MENU"
+title.Font              = Enum.Font.GothamBold
+title.TextSize          = 14
+title.BorderSizePixel   = 0
+title.Parent            = frame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent       = title
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding        = UDim.new(0, 4)
+listLayout.SortOrder      = Enum.SortOrder.LayoutOrder
+listLayout.Parent         = frame
+
+local pad = Instance.new("UIPadding")
+pad.PaddingTop    = UDim.new(0, 32)
+pad.PaddingLeft   = UDim.new(0, 8)
+pad.PaddingRight  = UDim.new(0, 8)
+pad.Parent        = frame
+
+local function makeButton(label, stateKey)
+    local btn = Instance.new("TextButton")
+    btn.Size              = UDim2.new(1, 0, 0, 30)
+    btn.BackgroundColor3  = Color3.fromRGB(35, 35, 50)
+    btn.TextColor3        = Color3.fromRGB(180, 180, 180)
+    btn.Text              = label .. ": OFF"
+    btn.Font              = Enum.Font.Gotham
+    btn.TextSize          = 13
+    btn.BorderSizePixel   = 0
+    btn.Parent            = frame
+
+    local bc = Instance.new("UICorner")
+    bc.CornerRadius = UDim.new(0, 6)
+    bc.Parent       = btn
+
+    btn.MouseButton1Click:Connect(function()
+        State[stateKey] = not State[stateKey]
+        if State[stateKey] then
+            btn.BackgroundColor3 = Color3.fromRGB(90, 60, 200)
+            btn.TextColor3       = Color3.fromRGB(255, 255, 255)
+            btn.Text             = label .. ": ON"
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+            btn.TextColor3       = Color3.fromRGB(180, 180, 180)
+            btn.Text             = label .. ": OFF"
+        end
+    end)
+    return btn
+end
+
+makeButton("ESP",        "esp")
+makeButton("Fly",        "fly")
+makeButton("Noclip",     "noclip")
+makeButton("Aimbot",     "aimbot")
+makeButton("Kill Aura",  "killaura")
+
+-- ──────────────────────────────────────────────
+-- ESP
+-- ──────────────────────────────────────────────
+local function updateESP()
+    -- mevcut highlight'ları temizle
+    for pid, h in pairs(espHighlights) do
+        local plr = Players:GetPlayerByUserId(pid)
+        if not plr or not State.esp then
+            h:Destroy()
+            espHighlights[pid] = nil
+        end
+    end
+    if not State.esp then return end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp and plr.Character then
+            if not espHighlights[plr.UserId] then
+                local h = Instance.new("Highlight")
+                h.FillColor           = Color3.fromRGB(255, 50, 50)
+                h.OutlineColor        = Color3.fromRGB(255, 255, 255)
+                h.FillTransparency    = 0.65
+                h.OutlineTransparency = 0
+                h.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+                h.Adornee             = plr.Character
+                h.Parent              = workspace
+                espHighlights[plr.UserId] = h
+            end
+        end
+    end
+end
+
+-- ──────────────────────────────────────────────
+-- FLY
+-- ──────────────────────────────────────────────
+local FLY_SPEED = 60
+
+local function enableFly()
+    local hrp = getHRP()
+    if not hrp then return end
+
+    local bv = Instance.new("BodyVelocity")
+    bv.Velocity        = Vector3.zero
+    bv.MaxForce        = Vector3.new(1e5, 1e5, 1e5)
+    bv.Parent          = hrp
+
+    local bg = Instance.new("BodyGyro")
+    bg.MaxTorque       = Vector3.new(1e5, 1e5, 1e5)
+    bg.D               = 50
+    bg.Parent          = hrp
+
+    flyBody = { bv = bv, bg = bg }
+
+    local hum = getHum()
+    if hum then hum.PlatformStand = true end
+end
+
+local function disableFly()
+    if flyBody.bv then flyBody.bv:Destroy() end
+    if flyBody.bg then flyBody.bg:Destroy() end
+    flyBody = {}
+    local hum = getHum()
+    if hum then hum.PlatformStand = false end
+end
+
+-- ──────────────────────────────────────────────
+-- AIMBOT — en yakın düşmanı ekran merkezine çek
+-- ──────────────────────────────────────────────
+local AIMBOT_FOV    = 200   -- piksel yarıçap
+local AIMBOT_SMOOTH = 0.25  -- 0=anlık, 1=hiç hareket etmez
+
+local function getNearestTarget()
+    local center     = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local best, bestDist = nil, math.huge
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp and plr.Character then
+            local head = plr.Character:FindFirstChild("Head")
+            if head then
+                local screenPos, onScreen = Camera:WorldToScreenPoint(head.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if dist < AIMBOT_FOV and dist < bestDist then
+                        bestDist = dist
+                        best = head
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- ──────────────────────────────────────────────
+-- KILL AURA
+-- ──────────────────────────────────────────────
+local KILL_RANGE = 20   -- studs
+
+local function doKillAura()
+    local hrp = getHRP()
+    if not hrp then return end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp and plr.Character then
+            local ehr = plr.Character:FindFirstChild("HumanoidRootPart")
+            if ehr then
+                local dist = (ehr.Position - hrp.Position).Magnitude
+                if dist <= KILL_RANGE then
+                    -- HRP'yi hedefe teleport et → touch damage tetikler
+                    -- (bazı oyunlarda tool/remote gerekir; en evrensel yöntem budur)
+                    local orig = hrp.CFrame
+                    hrp.CFrame = ehr.CFrame
+                    task.wait()
+                    hrp.CFrame = orig
+                end
+            end
+        end
+    end
+end
+
+-- ──────────────────────────────────────────────
+-- ANA DÖNGÜ
+-- ──────────────────────────────────────────────
+local prevFly = false
+
+RunService.RenderStepped:Connect(function(dt)
+
+    -- ESP güncelle (her 0.5s'de bir yeter ama burada hafif)
+    updateESP()
+
+    -- FLY
+    if State.fly ~= prevFly then
+        if State.fly then enableFly() else disableFly() end
+        prevFly = State.fly
+    end
+
+    if State.fly and flyBody.bv and flyBody.bg then
+        local cf   = Camera.CFrame
+        local dir  = Vector3.zero
+
+        if UserInput:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector end
+        if UserInput:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector end
+        if UserInput:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
+        if UserInput:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
+        if UserInput:IsKeyDown(Enum.KeyCode.Space) then
+            dir = dir + Vector3.new(0, 1, 0)
+        end
+        if UserInput:IsKeyDown(Enum.KeyCode.LeftShift) then
+            dir = dir - Vector3.new(0, 1, 0)
+        end
+
+        local mag = dir.Magnitude
+        flyBody.bv.Velocity = (mag > 0) and (dir.Unit * FLY_SPEED) or Vector3.zero
+        flyBody.bg.CFrame   = cf
+    end
+
+    -- NOCLIP
+    if State.noclip then
+        local c = getChar()
+        if c then
+            for _, part in ipairs(c:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+
+    -- AIMBOT — sol tıklama basılıyken aktif
+    if State.aimbot and UserInput:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local target = getNearestTarget()
+        if target then
+            local targetCF = CFrame.lookAt(Camera.CFrame.Position, target.Position)
+            Camera.CFrame  = Camera.CFrame:Lerp(targetCF, AIMBOT_SMOOTH)
+        end
+    end
+
+end)
+
+-- Kill Aura stepped döngüsü
+RunService.Stepped:Connect(function()
+    if State.killaura then
+        doKillAura()
+    end
+end)
+
+print("[ZXC] Script yüklendi.")
